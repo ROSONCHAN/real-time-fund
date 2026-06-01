@@ -1,32 +1,75 @@
 'use client';
 
-import { createClient } from '@supabase/supabase-js';
-
-// Supabase 配置
-// 这些值需要从 Supabase 项目设置中获取
-// 为了安全，建议使用环境变量
+// Supabase 配置（可选功能，不配置也不影响本地使用）
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.warn('Supabase 配置缺失，请设置 NEXT_PUBLIC_SUPABASE_URL 和 NEXT_PUBLIC_SUPABASE_ANON_KEY 环境变量');
+const isConfigured =
+  supabaseUrl &&
+  supabaseAnonKey &&
+  !supabaseUrl.includes('placeholder') &&
+  !supabaseAnonKey.includes('placeholder');
+
+// 延迟加载 Supabase（只在客户端且配置有效时）
+let _client = null;
+
+function getClient() {
+  if (_client !== null) return _client;
+  if (!isConfigured) {
+    _client = undefined;
+    return undefined;
+  }
+  try {
+    if (typeof window === 'undefined') {
+      _client = undefined;
+      return undefined;
+    }
+    // eslint-disable-next-line global-require
+    const { createClient } = require('@supabase/supabase-js');
+    _client = createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true,
+      },
+    });
+  } catch (e) {
+    console.warn('Supabase client creation failed:', e.message);
+    _client = undefined;
+  }
+  return _client;
 }
 
-// 创建 Supabase 客户端
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: true,
-  },
-});
+function noop() {
+  return Promise.resolve({ data: null, error: null });
+}
 
-// 数据库表结构定义（用于类型提示）
-export const TABLES = {
-  USER_DATA: 'user_data',
+const noOpClient = {
+  auth: {
+    getUser: noop,
+    getSession: noop,
+    signInWithPassword: noop,
+    signUp: noop,
+    signOut: noop,
+    onAuthStateChange: () => ({
+      data: { subscription: { unsubscribe: () => {} } },
+    }),
+  },
+  from: () => ({
+    select: () => ({ eq: noop, single: noop }),
+    insert: noop,
+    upsert: noop,
+    update: () => ({ eq: noop }),
+    delete: () => ({ eq: noop }),
+  }),
 };
 
-// 用户数据结构
+export const supabase = isConfigured
+  ? getClient() || noOpClient
+  : noOpClient;
+
+export const TABLES = { USER_DATA: 'user_data' };
+
 export const DATA_KEYS = {
   FUNDS: 'funds',
   POSITIONS: 'positions',
@@ -36,4 +79,3 @@ export const DATA_KEYS = {
   REFRESH_MS: 'refreshMs',
   VIEW_MODE: 'viewMode',
 };
-
